@@ -1,0 +1,83 @@
+---
+title: "Pilot Study Results"
+author: "Philip He"
+date: "2023-12-03"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+# install.packages("tidyverse")
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(tidyverse)
+
+```
+
+```{r}
+setwd("C:/Users/joonw/Downloads")
+data <- read.csv("pilot.csv")
+knitr::kable(data)
+
+```
+
+```{r}
+ov <- data %>% subset(Ovulating == 1) %>% rename(y_ov = y, z_ov=z) %>% select(subject, y_ov, z_ov)
+
+knitr::kable(ov)
+
+non_ov <- data %>% subset(Ovulating == 0)
+
+knitr::kable(non_ov)
+
+data1 <- merge(non_ov, ov, by="subject") %>% mutate(chg_y = y-y_ov, chg_z = z - z_ov) 
+
+data2 <- data1 %>% group_by(subject) %>% mutate(mu_chg_y=mean(chg_y), mu_chg_z = mean(chg_z)) 
+
+data3 <- data2 %>% mutate(e_chg_y = chg_y - mu_chg_y, e_chg_z = chg_z - mu_chg_z)
+
+
+knitr::kable(data3[,1:5])
+
+knitr::kable(data3[, c(1, 6:10)])
+
+knitr::kable(data3[, c(1, 11:13)])
+
+within_sd_chg_y = sd(data3$e_chg_y) 
+within_sd_chg_z = sd(data3$e_chg_z)
+
+usubj = unique(data3$subject)
+n = length(usubj)
+
+mu_chg_y = c(data3$mu_chg_y[data3$subject==usubj[1]][1], 
+             data3$mu_chg_y[data3$subject==usubj[2]][1],
+             data3$mu_chg_y[data3$subject==usubj[3]][1],
+             data3$mu_chg_y[data3$subject==usubj[4]][1])
+
+
+mu_chg_z = c(data3$mu_chg_z[data3$subject==usubj[1]][1], 
+             data3$mu_chg_z[data3$subject==usubj[2]][1],
+             data3$mu_chg_z[data3$subject==usubj[3]][1],
+             data3$mu_chg_z[data3$subject==usubj[4]][1])
+
+
+knitr::kable(cbind(usubj, mu_chg_y, mu_chg_z))
+
+between_sd_chg_y = sd(mu_chg_y) 
+between_sd_chg_z = sd(mu_chg_z)
+
+between_sd_chg_y
+between_sd_chg_z
+
+grand_mean_chg_y = mean(mu_chg_y)
+grand_mean_chg_z = mean(mu_chg_z)
+
+
+knitr::kable(cbind(between_sd_chg_y, within_sd_chg_y))
+
+knitr::kable(cbind(between_sd_chg_z, within_sd_chg_z))
+
+knitr::kable(cbind(grand_mean_chg_y, grand_mean_chg_z))
+
+```
+
+

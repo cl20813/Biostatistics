@@ -1,0 +1,285 @@
+---
+title: "Simulation_bio"
+author: "Joonwon Lee"
+date: "2023-12-03"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(tidyverse)
+```
+
+# Update 12/4
+
+```{r}
+setwd("C:/Users/joonw/Downloads")
+data <- read.csv("pilot.csv")
+```
+
+
+```{r}
+df <- data %>%
+  group_by(subject) %>%
+  mutate(diff_y = y[1]-y)
+
+df = df[df$diff_y!=0,]
+df = df %>%
+  group_by(subject) %>%
+  mutate(subject_mean = mean(diff_y), tmp = (diff_y-subject_mean)^2)
+
+total_mean_y = mean(df$diff_y)
+sub_mean_y = unique(df$subject_mean) 
+between_var_y = sum((sub_mean_y- total_mean_y)^2)/ (length(sub_mean_y)-1)
+within_var_y =  sum(df$tmp)/dim(df)[1]  
+
+mean_diff_y = sub_mean_y  
+between_sd_y = sqrt(between_var_y)         
+within_sd_y = sqrt(within_var_y)      
+
+
+df2 <- data %>%
+  group_by(subject) %>%
+  mutate(diff_z = z[1]-z)
+
+df2 = df2[df2$diff_z!=0,]
+df2 = df2 %>%
+  group_by(subject) %>%
+  mutate(subject_mean = mean(diff_z), tmp = (diff_z-subject_mean)^2)
+
+total_mean_z = mean(df2$diff_z)
+sub_mean_z = unique(df2$subject_mean) 
+between_var_z = sum((sub_mean_z- total_mean_z)^2)/ (length(sub_mean_z)-1)
+within_var_z = sum(df2$tmp)/dim(df2)[1]
+
+mean_diff_z = sub_mean_z  
+between_sd_z = sqrt(between_var_z)        
+within_sd_z = sqrt(within_var_z)  
+```
+
+## Summary table of y and z
+
+```{r}
+## y
+(Grand_mean = mean(df$diff_y))
+(subject_1_mean = sub_mean_y[1])
+(subject_2_mean = sub_mean_y[2])
+(subject_3_mean = sub_mean_y[3])
+(subject_4_mean = sub_mean_y[4])
+(between_subject_variance = var(sub_mean_y))
+(Within_subject_variance = within_var_y)
+
+## z
+
+(Grand_mean = mean(df2$diff_z))
+(subject_1_mean = sub_mean_z[1])
+(subject_2_mean = sub_mean_z[2])
+(subject_3_mean = sub_mean_z[3])
+(subject_4_mean = sub_mean_z[4])
+(between_subject_variance = var(sub_mean_z))
+(Within_subject_variance = within_var_z)
+
+```
+
+
+
+
+
+# Questions 1: how many data points needed in each group?
+## One sample T test
+
+Remark: 
+Basically, for each subject, we have (j+1) data points:
+\[
+ov-cycle_1, \ ov-cycle_2, \  \cdots, \ ov-cycle_j. 
+\]
+But ov is fixed, which means it has no randomness within the subject. Randomness comes from other j stages in the cycle except ovulation stage. So we can design the problem as one sample T test and our hypothesis can be written as: 
+$H_0$: mean(ov_cycle_i) = 0 VS  $H_a$: mean(ov_cycle_i)=1,
+
+where $1 \leq i \leq j$.
+
+```{r}
+mean_diff = c(0.3,0.4,0.5)
+within_sd = c(0.2,0.25,0.3)
+sigma = within_sd[2]
+diff = mean_diff[1]
+power.t.test(sig.level = 0.05, power= 0.9, delta= diff, sd= sigma, type="one", alternative="one.sided")
+```
+
+# Question2: How many subjects do we need assuming each subject has 8 stages?
+## Power analysis by simulation
+Consider following model and a hypothesis test:
+\[
+y_{ij} = \mu + b_i + e_{ij}, \ b_i \sim N(0,\sigma_1^2), \ e_{ij} \sim N(0, \sigma_2^2),
+\]
+
+One of the reasons why we are not using "session + estrogen+ progesterone" is that they seem to be
+correlated. Even if they are not linearly correlated, their correlation may cause the variance to increase. 
+
+$H_0: \mu = 0$, VS $H_a: \mu \neq 0 $.
+
+
+### Model1, check if 10 subjects are enough.
+
+Power of a test: probability that the test will correctly reject a false null hypothesis.
+When estimating $\mu$, I think degrees of freedom for this is (n-1) as df for residual but not so sure. Then I put df = n- k(subject numbers) in model 2.
+
+```{r}
+pow.sim = function(reps=1000, seed=2023, mu = 0.3, n=10, ov_cycle=7, between_sd = 0.15, within_sd = 0.15){
+  set.seed(seed)
+  sig = 0
+  capture = rep(0,reps)
+  
+  for (i in 1:reps){
+  bi = rnorm(n, mean=0, sd = between_sd)
+  b = rep(bi, each = ov_cycle)
+  e = rnorm(ov_cycle*n, mean=0, sd=within_sd)
+  y = mu + b + e
+
+  subjects = factor( rep(1:n, each = ov_cycle))
+  data = data.frame(y=y, group = subjects )
+  mod1 = lmer(y~ 1+ (1|group), data=data)
+
+  # set significance level alpha = 0.05 and do two sided hypothesis test
+  # H_0 : mu = 0,  H_a: mu \neq 0
+  critical_val = qt(1-0.05/2, df= (n*ov_cycle-1 ))[1]
+  # Extract coefficients and standard errors
+  coefficients <- fixef(mod1)
+  se <- sqrt(diag(vcov(mod1)))
+  # Calculate t-values
+  t_values <- coefficients / se
+  
+  sig = sig + ifelse( t_values >critical_val, 1,0)
+  }
+  return (sig/reps)
+}
+```
+
+```{r}
+within_sd = c(0.2, 0.25, 0.3)
+between_sd = c(0.2,0.25,0.3)
+mu = c(0.3,0.4,0.5)
+sub_num = c(10,12)
+
+# n=10
+test = matrix(0,3,3)
+for (i in 1:3){
+  for (j in 1:3){
+    test[i,j] = pow.sim(reps=1000, seed=2023, mu = mu[i], n=sub_num[1], ov_cycle=7, between_sd = within_sd[j], within_sd = between_sd[j])
+  }
+}
+
+# n= 12
+test2 = matrix(0,3,3)
+for (i in 1:3){
+  for (j in 1:3){
+    test2[i,j] = pow.sim(reps=1000, seed=2023, mu = mu[i], n=sub_num[2], ov_cycle=7, between_sd = within_sd[j], within_sd = between_sd[j])
+  }
+}
+```
+
+It seems 10 subjects are sufficient.
+
+### Update pilot 4
+
+```{r}
+print( sqrt(c(within_var_y,within_var_z)))
+within_sd_y = c(0.14, 0.2, 0.25, 0.3)
+
+within_sd = within_sd_y
+between_sd = within_sd_y
+mu = sort(abs(mean_diff_y), decreasing=FALSE)  #  0.08, 0.27, 0.53, 0.76
+
+sub_num = c(10,12)
+
+# n=10
+test_y = matrix(0,4,4)
+for (i in 1:4){
+  for (j in 1:4){
+    test_y[i,j] = pow.sim(reps=1000, seed=2023, mu = mu[i], n=sub_num[1], ov_cycle=7, between_sd = within_sd[j], within_sd = between_sd[j])
+  }
+}
+within_sd_z = c(0.23, 0.3, 0.35, 0.4)
+
+within_sd = within_sd_z
+between_sd = within_sd_z
+mu = sort(abs(mean_diff_z), decreasing=FALSE)  #  0.14, 0.45, 0.76, 1.116
+  
+test_z = matrix(0,4,4)
+for (i in 1:4){
+  for (j in 1:4){
+    test_z[i,j] = pow.sim(reps=1000, seed=2023, mu = mu[i], n=sub_num[1], ov_cycle=7, between_sd = within_sd[j], within_sd = between_sd[j])
+  }
+}
+
+```
+
+### Model2, check if 10 subjects are enough. Actually model2 and model1 is equivalent. 
+
+Consider following model2:
+\[
+y_ij = \mu + \beta O_{ij} + b_i + e_{ij},
+\]
+where $O_{ij}$ is an indicator variable taking value 1 if ovulation in a subject and 0 otherwise.
+
+Here we are testing $H_0: \beta = 0.$
+
+ 
+
+
+```{r}
+pow.sim2 = function(reps=1000, seed=2023, mu = 0.3, n, ov_cycle=8, between_sd = 0.15, within_sd = 0.15, beta=2){
+  set.seed(seed)
+  sig = 0
+ 
+
+  for (i in 1:reps){
+  b_i = rnorm(n, sd = between_sd)
+  b = rep(b_i, each = ov_cycle)
+  tmp = c(1, rep(0,7))
+  o = rep(tmp, n) 
+  e = rnorm(ov_cycle*n, 0, sd=within_sd)
+  y = mu + beta*o + b + e
+  subjects = factor( rep(1:n, each = ov_cycle))
+  data = data.frame(y=y, group = subjects )
+  mod2 = lmer(y~ 1+ o + (1|group), data=data)  
+    
+  # set significance level alpha = 0.05 and do two sided hypothesis test
+  # H_0 : mu = 0,  H_a: mu \neq 0
+  critical_val = qt(1-0.05/2, df= (n*ov_cycle-1 ))[1]
+  # Extract coefficients and standard errors
+  coefficients <- fixef(mod1)
+  se <- sqrt(diag(vcov(mod1)))
+  # Calculate t-values
+  t_values <- coefficients / se
+  
+  sig = sig + ifelse( t_values >critical_val, 1,0)
+  }
+  return (sig/reps)
+}
+```
+
+```{r}
+within_sd = c(0.2, 0.25, 0.3)
+between_sd = c(0.2,0.25,0.3)
+mu = c(0.3,0.4,0.5)
+sub_num = c(10,12)
+beta = 2
+
+# n=10
+test = matrix(0,3,3)
+for (i in 1:3){
+  for (j in 1:3){
+    test[i,j] = pow.sim2(reps=1000, seed=2023, mu = mu[i], n=10, ov_cycle=8, between_sd = between_sd[j], within_sd = within_sd[j],beta=2)
+  }
+}
+
+# n= 12
+test2 = matrix(0,3,3)
+for (i in 1:3){
+  for (j in 1:3){
+    test2[i,j] = pow.sim2(reps=1000, seed=2023, mu = mu[i], n=12, ov_cycle=8, between_sd = within_sd[j], within_sd = between_sd[j], beta=2)
+  }
+}
+```
